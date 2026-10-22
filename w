@@ -1,8 +1,8 @@
 -- NORMAL Roblox executor; not Matcha. Observes only: no inputs/remotes/state writes.
--- F1: optional trial marker. End: save and stop. Inputs/actions are logged automatically.
--- Automatically saves/stops after 180 seconds. Requires executor writefile.
+-- F1: optional trial marker. End: copy recording and stop.
+-- Automatically copies/stops after 180 seconds. Requires executor setclipboard.
 local env = type(getgenv)=="function" and getgenv() or _G
-assert(type(writefile)=="function", "This recorder requires writefile")
+assert(type(setclipboard)=="function", "This recorder requires setclipboard")
 if env.SoloMovementLogger then env.SoloMovementLogger.Stop() end
 local Players=game:GetService("Players")
 local RS=game:GetService("ReplicatedStorage")
@@ -10,8 +10,7 @@ local UIS=game:GetService("UserInputService")
 local HTTP=game:GetService("HttpService")
 local lp=Players.LocalPlayer
 local stamp=os.time()
-local filename="solo_movement_"..stamp..".json"
-local R={Running=true,Connections={},File=filename,Modules={}}
+local R={Running=true,Connections={},Modules={}}
 env.SoloMovementLogger=R
 local D={Version=1,StartedUnix=stamp,LocalUserId=lp.UserId,PlaceId=game.PlaceId,
     Constants={},Samples={},Events={},Marks={},Errors={},Modules={},DroppedEvents=0}
@@ -78,15 +77,18 @@ for name,path in pairs(paths) do
 end
 function R.Save()
     D.Elapsed=os.clock()-start
-    local ok,e=pcall(function() writefile(filename,HTTP:JSONEncode(D)) end)
-    if not ok then warn("Solo save failed",e) end
+    local ok,e=pcall(function()
+        R.LastJSON=HTTP:JSONEncode(D)
+        setclipboard(R.LastJSON)
+    end)
+    if not ok then warn("Clipboard copy failed; recording retained in SoloMovementLogger.Data",e) end
     return ok
 end
 function R.Stop()
     if not R.Running then return end
     R.Running=false
     for _,c in ipairs(R.Connections) do c:Disconnect() end
-    if R.Save() then print("SOLO RECORDING SAVED:",filename,#D.Samples,"samples",#D.Events,"events") end
+    if R.Save() then print("SOLO RECORDING COPIED TO CLIPBOARD:",#D.Samples,"samples",#D.Events,"events. Paste it into chat.") end
 end
 local function event(kind,data)
     if #D.Events>=4000 then D.DroppedEvents=D.DroppedEvents+1;return end
@@ -117,7 +119,7 @@ R.Connections[#R.Connections+1]=UIS.InputBegan:Connect(function(input,processed)
         if input.KeyCode==Enum.KeyCode.End then R.Stop();return end
         if input.KeyCode==Enum.KeyCode.F1 then
             D.Marks[#D.Marks+1]={Time=times(),Kind="trial marker"}
-            R.Save();print("Solo trial marker",#D.Marks)
+            print("Solo trial marker",#D.Marks)
         end
     end
     inputEvent(input,"begin",processed)
@@ -126,7 +128,6 @@ R.Connections[#R.Connections+1]=UIS.InputEnded:Connect(function(input,processed)
     inputEvent(input,"end",processed)
 end)
 task.spawn(function()
-    local nextSave=10
     while R.Running do
         local ok,e=pcall(function()
             local M=R.Modules
@@ -179,9 +180,8 @@ task.spawn(function()
         if not ok then failure("sample",e) end
         local elapsed=os.clock()-start
         if elapsed>=180 then R.Stop();break end
-        if elapsed>=nextSave then R.Save();nextSave=elapsed+10 end
         task.wait(1/30)
     end
 end)
-print("SOLO LOGGER STARTED. Kick, tackle, walk and jump normally. 3 minutes. F1 optional marker / End save+stop.")
-print("Output:",filename,"in your executor workspace. No automated inputs or outgoing remotes.")
+print("SOLO LOGGER STARTED. Kick, tackle, walk and jump normally. 3 minutes. F1 optional marker / End copy+stop.")
+print("Recording will be copied to your clipboard on stop. No automated inputs or outgoing remotes.")
